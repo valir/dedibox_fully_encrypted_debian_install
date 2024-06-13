@@ -101,7 +101,7 @@ sfdisk -d /dev/sda > sda.sfdisk
 
 
 ~~~~
-sed -e 's|^\(.*, Id=\)8[23]$|\1da|g' -i sda.sfdisk
+sed -e 's|^\(.*, type=\)8[23]$|\1da|g' -i sda.sfdisk
 ~~~~
 
 ### Apply partition types modification
@@ -133,8 +133,8 @@ mount /dev/mapper/sda3_crypt /data
 ### Do a fresh install on new encrypted root
 
 ~~~~~
-debian_mirror=http://http.debian.net/debian
-debian_codename=stretch # change with target distribution
+debian_mirror=http://mirrors.online.net/debian
+debian_codename=bullseye # change with target distribution
 debootstrap_base_url=${debian_mirror}/pool/main/d/debootstrap
 debootstrap_version=\
 $(wget ${debootstrap_base_url} -q -O - |\
@@ -175,19 +175,19 @@ export LC_ALL=C.UTF-8
 
 ~~~~~
 cat <<EOF> /etc/apt/sources.list
-deb http://deb.debian.org/debian/ stretch main contrib non-free
-#deb-src http://deb.debian.org/debian/ stretch main contrib non-free
+deb http://mirrors.online.net/debian/ bullseye main contrib non-free
+#deb-src http://mirrors.online.net/debian/ bullseye main contrib non-free
 
-#deb http://security.debian.org/ stretch/updates main contrib non-free
-#deb-src http://security.debian.org/ stretch/updates main contrib non-free
+#deb http://security.debian.org/ bullseye/updates main contrib non-free
+#deb-src http://security.debian.org/ bullseye/updates main contrib non-free
 
-# stretch-updates, previously known as 'volatile'
-#deb http://deb.debian.org/debian/ stretch-updates main contrib non-free
-#deb-src http://deb.debian.org/debian/ stretch-updates main contrib non-free
+# bullseye-updates, previously known as 'volatile'
+#deb http://deb.debian.org/debian/ bullseye-updates main contrib non-free
+#deb-src http://deb.debian.org/debian/ bullseye-updates main contrib non-free
 
-# stretch-backports, previously on backports.debian.org
-#deb http://deb.debian.org/debian/ stretch-backports main contrib non-free
-#deb-src http://deb.debian.org/debian/ stretch-backports main contrib non-free
+# bullseye-backports, previously on backports.debian.org
+#deb http://deb.debian.org/debian/ bullseye-backports main contrib non-free
+#deb-src http://deb.debian.org/debian/ bullseye-backports main contrib non-free
 EOF
 cat <<EOF> /etc/apt/apt.conf.d/30disable-recommends-and-suggests
 APT::Install-Recommends "0";
@@ -206,7 +206,7 @@ console-setup\tconsole-setup/codesetcode\tstring\tguess\n\
 console-setup\tconsole-setup/codeset47\tselect\tGuess optimal character set" |\
 debconf-set-selections
 apt-get update
-apt-get -y install cryptsetup console-setup
+apt-get -y install cryptsetup console-setup cryptsetup-initramfs
 apt-get -y autoremove
 apt-get clean
 ~~~~~
@@ -268,10 +268,10 @@ auto lo
 iface lo inet loopback
 EOF
 id_net_name_path=\
-$(udevadm info -e | grep -A 9 ^P.*/net/ |grep -m1 ID_NET_NAME_PATH |cut -f2 -d=)
+$(udevadm info -e | grep -A 15 ^P.*/net/ |grep -m1 ID_NET_NAME_PATH |cut -f2 -d=)
 cat <<EOF> /etc/network/interfaces.d/01_primary
 # The primary network interface
-auto ${id_net_name_path}
+allow-hotplug ${id_net_name_path}
 iface ${id_net_name_path} inet dhcp
 EOF
 ~~~~~
@@ -336,7 +336,7 @@ cp -af /root/.ssh/authorized_keys /etc/dropbear-initramfs
 ### Install dropbear
 
 ~~~~~
-apt-get install -y dropbear
+apt-get install -y dropbear dropbear-initramfs
 ~~~~~
 
 ### Make SSH keys dropbear's ones
@@ -344,9 +344,12 @@ apt-get install -y dropbear
 ~~~~~
 rm -f /etc/dropbear-initramfs/dropbear_*_host_key
 for hash in rsa ecdsa; do \
+  # Convert private key to PEM as dropbear do not support the default format
+  ssh-keygen -m PEM -p -N "" -f /etc/ssh/ssh_host_${hash}_key
   /usr/lib/dropbear/dropbearconvert openssh dropbear \
-  /etc/ssh/ssh_host_${hash}_key  \
-  /etc/dropbear-initramfs/dropbear_${hash}_host_key ; done
+      /etc/ssh//ssh_host_${hash}_key \
+      /etc/dropbear-initramfs/dropbear_${hash}_host_key
+  done
 rm -f /etc/dropbear/dropbear_*_host_key
 cp -a /etc/dropbear-initramfs/dropbear_*_host_key /etc/dropbear
 ~~~~~
@@ -452,6 +455,13 @@ for hash in rsa ecdsa; do
 done
 EOF
 chmod a+x /etc/initramfs-tools/hooks/install_start_dm_crypt
+~~~~
+
+### Add `start_dm_crypt` script as default command
+
+~~~~
+sed -e "s/^\(#\)\?\(DROPBEAR_OPTIONS=\)'\?\([^']*\)'\?.*$/\2'\3 -c \/sbin\/start_dm_crypt'/g" \
+  -i /etc/dropbear-initramfs/config
 ~~~~
 
 ### Install some usefull stuff (optional)
